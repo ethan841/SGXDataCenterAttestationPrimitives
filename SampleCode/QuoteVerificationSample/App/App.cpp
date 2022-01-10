@@ -41,6 +41,18 @@
 #include "sgx_ql_quote.h"
 #include "sgx_dcap_quoteverify.h"
 
+#include <sys/socket.h> // Socket Usage - QUOTE receive
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <curl/curl.h>
+
+#define PORT 5500
+#define MAXLINE 127
+
 #ifndef _MSC_VER
 
 #define SAMPLE_ISV_ENCLAVE  "enclave.signed.so"
@@ -54,9 +66,16 @@
 #define strncpy	strncpy_s
 #endif
 
-
 using namespace std;
 
+string response_string;
+string header_string;
+
+size_t writeFunction(void *ptr, size_t size, size_t nmemb, string* data)
+{
+    data->append((char*) ptr, size * nmemb);
+    return size * nmemb;
+}
 
 vector<uint8_t> readBinaryContent(const string& filePath)
 {
@@ -320,6 +339,44 @@ int SGX_CDECL main(int argc, char *argv[])
 {
     vector<uint8_t> quote;
 
+    struct sockaddr_in servaddr;
+    struct sockaddr_in cliaddr, client_addr;
+    int listen_sock, accp_sock, nbyte, nbuf;
+    int client_sockfd;
+    int result;
+    int state;
+    char msg[10];
+    socklen_t addrlen, client_len;
+
+    char buf[MAXLINE+1];
+    char cli_ip[20];
+    char filename[20];
+    int filesize=0;
+    int total = 0, sread, fp;
+    memset(msg, 0x00, 10);
+    state = 0;
+    
+    listen_sock = socket(PF_INET, SOCK_STREAM, 0);
+    if(listen_sock < 0){
+        perror("socket fail\n");
+        exit(0);
+    }
+
+    bzero((char*)&servaddr, sizeof(servaddr));
+
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    servaddr.sin_port = htons(PORT);
+
+    int a;
+    a = bind(listen_sock, (struct sockaddr *)&servaddr, sizeof(servaddr));
+    if(a < 0){
+        perror("bind fail\n");
+        exit(0);
+    }
+
+    listen(listen_sock, 5);
+
     char quote_path[PATHSIZE] = { '\0' };
 
     //Just for sample use, better to change solid command line args solution in production env
@@ -337,6 +394,54 @@ int SGX_CDECL main(int argc, char *argv[])
     if (*quote_path == '\0') {
         strncpy(quote_path, DEFAULT_QUOTE, PATHSIZE);
     }
+
+     printf("Test Version - DCAP QUOTE Remote Verification \n"); // wait until QUOTE RECEIVED from Source Host
+
+	if(access("/home/mobileosdcap1/SGX/mosl/SGXDataCenterAttestationPrimitives/SampleCode/QuoteVerificationSample/quote.dat", 0)==0){
+		system("rm /home/mobileosdcap1/SGX/mosl/SGXDataCenterAttestationPrimitives/SampleCode/QuoteVerificationSample/quote.dat");
+	}
+        printf("Waiting quote.dat input...\n");
+        accp_sock = accept(listen_sock, (struct sockaddr*)&cliaddr, &addrlen);
+
+        if(accp_sock < 0){
+            perror("accept fail\n");
+            exit(0);
+        }
+
+        printf("Client connected\n");
+
+        inet_ntop(AF_INET, &cliaddr.sin_addr.s_addr, cli_ip, sizeof(cli_ip));
+        printf("IP : %s\n", cli_ip);
+        printf("PORT : %d\n", ntohs(cliaddr.sin_port));
+
+        bzero(filename, 20);
+        recv(accp_sock, filename, sizeof(filename), 0);
+        printf("filename = %s\n", filename);
+
+        read(accp_sock, &filesize, sizeof(filesize));
+        printf("filesize : %d\n", filesize);
+
+        //strcat(filename, "_backup");
+        fp = open(filename, O_WRONLY | O_CREAT | O_EXCL, 0700);
+
+        int file_read_len;
+
+        while(1){
+            memset(buf, 0x00, MAXLINE);
+            file_read_len = read(accp_sock, buf, MAXLINE);
+            write(fp, buf, file_read_len);
+
+            if(file_read_len == EOF | file_read_len == 0){
+                printf("quote.dat received\n");
+                break;
+            }
+        }
+
+        close(fp);
+        close(accp_sock);
+  
+    close(listen_sock);
+
 
     //read quote from file
     //
