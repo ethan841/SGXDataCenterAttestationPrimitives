@@ -113,6 +113,13 @@ int main(int argc, char* argv[])
     (void)(argc);
     (void)(argv);
 
+    struct sockaddr_in servaddr; // QUOTE
+    int s, nbyte;
+    char buf[MAXLINE + 1];
+    char filename[20];
+    int filesize, fp, filenamesize;
+    int sread, total = 0;
+
     int ret = 0;
     quote3_error_t qe3_ret = SGX_QL_SUCCESS;
     uint32_t quote_size = 0;
@@ -311,6 +318,6 @@ CLEANUP:
     printf("quote send complete\n");
     close(fp);
     close(s);
-    
+
     return ret;
 }
