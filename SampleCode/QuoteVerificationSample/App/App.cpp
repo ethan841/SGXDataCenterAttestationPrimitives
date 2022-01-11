@@ -472,5 +472,7 @@ int SGX_CDECL main(int argc, char *argv[])
 
     printf("\n");
 
+    system("curl http://172.25.244.75:3000/?result=OK");
+
     return 0;
 }
